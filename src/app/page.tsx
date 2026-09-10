@@ -49,7 +49,9 @@ export default async function HomePage(props: PageProps<"/">) {
 
       {/* Category Filters */}
       <div className="mb-6">
-        <CategoryTabs categories={categories} />
+        <Suspense fallback={<Skeleton className="h-10 w-full" />}>
+          <CategoryTabs categories={categories} />
+        </Suspense>
       </div>
 
       {/* Article List with Suspense for immediate navigation feedback */}
