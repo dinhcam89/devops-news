@@ -29,8 +29,16 @@ export function ArticleCard({ article }: ArticleCardProps) {
     SOURCE_COLORS[article.sourceSlug] || "bg-zinc-500/15 text-zinc-400";
 
   function handleBookmark() {
-    startTransition(() => {
-      toggleBookmark(article.id);
+    startTransition(async () => {
+      try {
+        await toggleBookmark(article.id);
+      } catch (error: any) {
+        if (error.message.includes("Unauthorized")) {
+          alert("Please sign in to bookmark articles.");
+        } else {
+          console.error("Failed to bookmark", error);
+        }
+      }
     });
   }
 

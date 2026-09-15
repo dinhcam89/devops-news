@@ -1,14 +1,27 @@
 import { getDb } from "@/db";
-import { articles, sources } from "@/db/schema";
+import { articles, sources, tools, snippets, bookmarks, toolUpvotes, trackedRepos } from "@/db/schema";
 import { desc, eq, sql, and, count, inArray } from "drizzle-orm";
+import { auth } from "@/auth";
+
+async function getUserId() {
+  const session = await auth();
+  return session?.user?.id;
+}
+
+function getIsBookmarkedSql(userId?: string) {
+  if (!userId) return sql<boolean>`false`.as("isBookmarked");
+  return sql<boolean>`EXISTS(SELECT 1 FROM bookmarks WHERE bookmarks.article_id = articles.id AND bookmarks.user_id = ${userId})`.as("isBookmarked");
+}
+
+function getIsUpvotedSql(userId?: string) {
+  if (!userId) return sql<boolean>`false`.as("isUpvoted");
+  return sql<boolean>`EXISTS(SELECT 1 FROM tool_upvotes WHERE tool_upvotes.tool_id = tools.id AND tool_upvotes.user_id = ${userId})`.as("isUpvoted");
+}
 
 // ============================================
 // ARTICLE QUERIES
 // ============================================
 
-/**
- * Fetch the latest articles with source info, optionally filtered by category.
- */
 export async function getLatestArticles({
   limit = 20,
   offset = 0,
@@ -19,6 +32,7 @@ export async function getLatestArticles({
   category?: string;
 } = {}) {
   const db = getDb();
+  const userId = await getUserId();
   const conditions = category
     ? and(eq(articles.category, category))
     : undefined;
@@ -35,7 +49,7 @@ export async function getLatestArticles({
       tags: articles.tags,
       category: articles.category,
       isRead: articles.isRead,
-      isBookmarked: articles.isBookmarked,
+      isBookmarked: getIsBookmarkedSql(userId),
       sourceName: sources.name,
       sourceSlug: sources.slug,
     })
@@ -47,14 +61,11 @@ export async function getLatestArticles({
     .offset(offset);
 }
 
-/**
- * Full-text search using Postgres tsvector with ranking.
- * Fix #8: removed duplicate ts_rank computation — rank is only in ORDER BY.
- */
 export async function searchArticles(query: string, limit = 20) {
   if (!query.trim()) return [];
 
   const db = getDb();
+  const userId = await getUserId();
   return db
     .select({
       id: articles.id,
@@ -67,7 +78,7 @@ export async function searchArticles(query: string, limit = 20) {
       tags: articles.tags,
       category: articles.category,
       isRead: articles.isRead,
-      isBookmarked: articles.isBookmarked,
+      isBookmarked: getIsBookmarkedSql(userId),
       sourceName: sources.name,
       sourceSlug: sources.slug,
     })
@@ -82,10 +93,10 @@ export async function searchArticles(query: string, limit = 20) {
     .limit(limit);
 }
 
-/**
- * Get bookmarked articles.
- */
 export async function getBookmarkedArticles(limit = 50) {
+  const userId = await getUserId();
+  if (!userId) return [];
+
   const db = getDb();
   return db
     .select({
@@ -99,22 +110,21 @@ export async function getBookmarkedArticles(limit = 50) {
       tags: articles.tags,
       category: articles.category,
       isRead: articles.isRead,
-      isBookmarked: articles.isBookmarked,
+      isBookmarked: sql<boolean>`true`.as("isBookmarked"),
       sourceName: sources.name,
       sourceSlug: sources.slug,
     })
     .from(articles)
     .innerJoin(sources, eq(articles.sourceId, sources.id))
-    .where(eq(articles.isBookmarked, true))
-    .orderBy(desc(articles.publishedAt))
+    .innerJoin(bookmarks, eq(bookmarks.articleId, articles.id))
+    .where(eq(bookmarks.userId, userId))
+    .orderBy(desc(bookmarks.createdAt))
     .limit(limit);
 }
 
-/**
- * Get articles from a specific source.
- */
 export async function getArticlesBySource(sourceSlug: string, limit = 30) {
   const db = getDb();
+  const userId = await getUserId();
   return db
     .select({
       id: articles.id,
@@ -127,7 +137,7 @@ export async function getArticlesBySource(sourceSlug: string, limit = 30) {
       tags: articles.tags,
       category: articles.category,
       isRead: articles.isRead,
-      isBookmarked: articles.isBookmarked,
+      isBookmarked: getIsBookmarkedSql(userId),
       sourceName: sources.name,
       sourceSlug: sources.slug,
     })
@@ -142,10 +152,6 @@ export async function getArticlesBySource(sourceSlug: string, limit = 30) {
 // SOURCE QUERIES
 // ============================================
 
-/**
- * Get all sources with their article counts.
- * Fix #6: Use a subquery for the count instead of an expensive LEFT JOIN + GROUP BY.
- */
 export async function getSources() {
   const db = getDb();
   return db
@@ -168,9 +174,6 @@ export async function getSources() {
     .orderBy(sources.name);
 }
 
-/**
- * Get all distinct categories with counts.
- */
 export async function getCategories() {
   const db = getDb();
   return db
@@ -183,12 +186,13 @@ export async function getCategories() {
     .orderBy(desc(count(articles.id)));
 }
 
-/**
- * Get counts for the dashboard.
- * Fix #1: Combined 4 sequential queries into a single SQL statement.
- */
 export async function getStats() {
   const db = getDb();
+  const userId = await getUserId();
+  const bookmarkedQuery = userId 
+    ? sql`(SELECT count(*) FROM bookmarks WHERE user_id = ${userId})::text` 
+    : sql`'0'::text`;
+
   const result = await db.execute<{
     total: string;
     unread: string;
@@ -198,7 +202,7 @@ export async function getStats() {
     SELECT
       (SELECT count(*) FROM articles)::text AS total,
       (SELECT count(*) FROM articles WHERE is_read = false)::text AS unread,
-      (SELECT count(*) FROM articles WHERE is_bookmarked = true)::text AS bookmarked,
+      ${bookmarkedQuery} AS bookmarked,
       (SELECT count(*) FROM sources WHERE is_active = true)::text AS active_sources
   `);
 
@@ -209,4 +213,62 @@ export async function getStats() {
     bookmarkedArticles: Number(row.bookmarked),
     activeSources: Number(row.active_sources),
   };
+}
+
+// ============================================
+// TOOL QUERIES
+// ============================================
+
+export async function getTools({ category, phase }: { category?: string; phase?: string } = {}) {
+  const db = getDb();
+  const userId = await getUserId();
+  
+  const conditions = and(
+    category ? eq(tools.category, category) : undefined,
+    phase ? eq(tools.sdlcPhase, phase) : undefined
+  );
+
+  return db
+    .select({
+      id: tools.id,
+      name: tools.name,
+      url: tools.url,
+      description: tools.description,
+      category: tools.category,
+      sdlcPhase: tools.sdlcPhase,
+      upvotes: tools.upvotes,
+      isUpvoted: getIsUpvotedSql(userId),
+    })
+    .from(tools)
+    .where(conditions)
+    .orderBy(desc(tools.upvotes));
+}
+
+// ============================================
+// SNIPPET QUERIES
+// ============================================
+
+export async function getRandomSnippet() {
+  const db = getDb();
+  const result = await db.execute<{
+    id: string;
+    title: string;
+    content: string;
+    author: string | null;
+  }>(sql`SELECT id, title, content, author FROM snippets ORDER BY random() LIMIT 1`);
+  
+  if (result.length === 0) return null;
+  return result[0];
+}
+
+// ============================================
+// TRACKED REPO QUERIES
+// ============================================
+
+export async function getTrackedRepos() {
+  const db = getDb();
+  return db
+    .select()
+    .from(trackedRepos)
+    .orderBy(trackedRepos.category, desc(trackedRepos.stars));
 }

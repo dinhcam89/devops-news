@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { getLatestArticles, getCategories, getStats } from "@/lib/queries";
+import { getLatestArticles, getCategories, getStats, getRandomSnippet } from "@/lib/queries";
 import { ArticleList } from "@/components/article-list";
 import { CategoryTabs } from "@/components/category-tabs";
 import { StatsCards } from "@/components/stats-cards";
@@ -18,9 +18,10 @@ export default async function HomePage(props: PageProps<"/">) {
       ? searchParams.category
       : undefined;
 
-  const [categories, stats] = await Promise.all([
+  const [categories, stats, tipOfTheDay] = await Promise.all([
     getCategories(),
     getStats(),
+    getRandomSnippet(),
   ]);
 
   return (
@@ -41,6 +42,17 @@ export default async function HomePage(props: PageProps<"/">) {
       <div className="mb-6">
         <StatsCards stats={stats} />
       </div>
+
+      {/* Tip of the Day */}
+      {tipOfTheDay && (
+        <div className="mb-6 p-4 rounded-lg bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900">
+          <div className="flex items-center gap-2 mb-2 text-indigo-700 dark:text-indigo-400">
+            <span className="font-semibold">💡 Tip of the Day: {tipOfTheDay.title}</span>
+          </div>
+          <p className="text-sm text-foreground/80">{tipOfTheDay.content}</p>
+          {tipOfTheDay.author && <p className="text-xs text-muted-foreground mt-2">— {tipOfTheDay.author}</p>}
+        </div>
+      )}
 
       {/* Search */}
       <div className="mb-6 max-w-md">

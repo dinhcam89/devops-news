@@ -44,6 +44,17 @@ export interface DashboardStats {
   activeSources: number;
 }
 
+export interface ToolView {
+  id: string;
+  name: string;
+  url: string;
+  description: string;
+  category: string;
+  sdlcPhase: string;
+  upvotes: number | null;
+  isUpvoted: boolean | null;
+}
+
 // Category color mapping for consistent UI
 export const CATEGORY_COLORS: Record<string, string> = {
   "Cloud Native": "bg-indigo-500/15 text-indigo-400 border-indigo-500/20",

@@ -9,18 +9,25 @@ import {
   Radio,
   Menu,
   X,
+  Info,
+  GraduationCap,
+  GitPullRequest,
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { AuthButton } from "./auth-button";
 
 const navItems = [
   { href: "/", label: "Feed", icon: Newspaper },
   { href: "/search", label: "Search", icon: Search },
   { href: "/bookmarks", label: "Bookmarks", icon: Bookmark },
   { href: "/sources", label: "Sources", icon: Radio },
+  { href: "/tracker", label: "Tracker", icon: GitPullRequest },
+  { href: "/learning", label: "Learning", icon: GraduationCap },
+  { href: "/about", label: "About", icon: Info },
 ];
 
-export function NavBar() {
+export function NavBar({ user }: { user?: { name?: string | null; email?: string | null; image?: string | null } }) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -65,19 +72,26 @@ export function NavBar() {
         </nav>
 
         {/* Mobile Menu Button */}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="sm:hidden"
-          onClick={() => setMobileOpen(!mobileOpen)}
-          aria-label="Toggle menu"
-        >
-          {mobileOpen ? (
-            <X className="h-5 w-5" />
-          ) : (
-            <Menu className="h-5 w-5" />
-          )}
-        </Button>
+        <div className="flex items-center gap-2 sm:hidden">
+          <AuthButton user={user} />
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setMobileOpen(!mobileOpen)}
+            aria-label="Toggle menu"
+          >
+            {mobileOpen ? (
+              <X className="h-5 w-5" />
+            ) : (
+              <Menu className="h-5 w-5" />
+            )}
+          </Button>
+        </div>
+
+        {/* Desktop Auth */}
+        <div className="hidden sm:block">
+          <AuthButton user={user} />
+        </div>
       </div>
 
       {/* Mobile Nav */}

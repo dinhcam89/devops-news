@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { NavBar } from "@/components/nav-bar";
+import { auth } from "@/auth";
 import "./globals.css";
 
 const inter = Inter({
@@ -28,11 +29,13 @@ export const metadata: Metadata = {
   ],
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const session = await auth();
+
   return (
     <html
       lang="en"
@@ -40,7 +43,7 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col bg-background text-foreground">
         <TooltipProvider delay={300}>
-          <NavBar />
+          <NavBar user={session?.user} />
           <main className="flex-1">{children}</main>
           <footer className="border-t border-border/30 py-6">
             <div className="mx-auto max-w-6xl px-4 sm:px-6">

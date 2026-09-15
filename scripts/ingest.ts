@@ -11,10 +11,11 @@ import dotenv from "dotenv";
 dotenv.config({ path: ".env.local" });
 
 import { getDb } from "../src/db";
-import { sources, articles } from "../src/db/schema";
+import { sources, articles, trackedRepos } from "../src/db/schema";
 import { eq } from "drizzle-orm";
 import { fetchRSSFeed } from "./sources/rss";
 import { fetchGitHubReleases } from "./sources/github-releases";
+import { fetchRepoTrackerData } from "./sources/github-tracker";
 import { generateSummary, extractTags, categorize } from "./summarizer";
 import type { RawArticle, IngestionReport } from "./sources/types";
 import type { NewArticle } from "../src/db/schema";
@@ -113,7 +114,7 @@ async function main(): Promise<void> {
       try {
         const tags = extractTags(raw.title, raw.content || "");
         const category = categorize(tags);
-        const summary = generateSummary(raw.title, raw.content || "");
+        const summary = await generateSummary(raw.title, raw.content || "");
 
         batch.push({
           sourceId: raw.sourceId,
@@ -177,6 +178,48 @@ async function main(): Promise<void> {
     report.errors.forEach((e) => console.log(`   - ${e}`));
   }
   console.log("=".repeat(50));
+
+  // 6. Sync tracked repos
+  await syncTrackedRepos(db);
+}
+
+async function syncTrackedRepos(db: ReturnType<typeof getDb>) {
+  console.log("\n🔍 Syncing tracked repositories...");
+  const repos = await db.select().from(trackedRepos);
+  console.log(`   Found ${repos.length} tracked repos`);
+
+  let synced = 0;
+  let failed = 0;
+
+  for (const tracked of repos) {
+    try {
+      const data = await fetchRepoTrackerData(tracked.owner, tracked.repo);
+      await db
+        .update(trackedRepos)
+        .set({
+          description: data.description,
+          stars: data.stars,
+          language: data.language,
+          openIssuesCount: data.openIssuesCount,
+          openPrsCount: data.openPrsCount,
+          latestReleaseTag: data.latestReleaseTag,
+          latestReleaseDate: data.latestReleaseDate,
+          latestReleaseUrl: data.latestReleaseUrl,
+          recentMergedPrs: data.recentMergedPrs,
+          milestones: data.milestones,
+          lastSyncedAt: new Date(),
+        })
+        .where(eq(trackedRepos.id, tracked.id));
+      synced++;
+      console.log(`   ✅ ${tracked.owner}/${tracked.repo}`);
+    } catch (err: unknown) {
+      failed++;
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      console.error(`   ❌ ${tracked.owner}/${tracked.repo}: ${msg}`);
+    }
+  }
+
+  console.log(`\n🔍 Tracker sync: ${synced} synced, ${failed} failed`);
 }
 
 main()

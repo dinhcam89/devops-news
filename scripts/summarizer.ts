@@ -9,35 +9,57 @@
 // SUMMARY GENERATION
 // ============================================
 
+import { GoogleGenerativeAI } from "@google/generative-ai";
+
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
+
 /**
- * Generate a short summary from article content.
- * Extracts the first 2-3 meaningful sentences.
+ * Generate a short summary from article content using Gemini API.
+ * Extracts the DevOps Impact.
  */
-export function generateSummary(title: string, content: string): string {
+export async function generateSummary(title: string, content: string): Promise<string> {
   if (!content || content.trim().length === 0) {
     return title;
   }
 
-  // Strip HTML tags
+  // Strip HTML tags for token efficiency
   const clean = content
     .replace(/<[^>]*>/g, "")
     .replace(/&[a-zA-Z]+;/g, " ") // HTML entities
     .replace(/\s+/g, " ")
-    .trim();
+    .trim()
+    .slice(0, 15000); // Send at most ~15k chars to LLM to save tokens and avoid limits
 
-  // Split into sentences
-  const sentences = clean
-    .split(/(?<=[.!?])\s+/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 20 && !s.startsWith("http"));
-
-  if (sentences.length === 0) {
-    return clean.slice(0, 300);
+  if (!process.env.GEMINI_API_KEY) {
+    console.warn("⚠️ GEMINI_API_KEY is not set. Falling back to rule-based summary.");
+    const sentences = clean.split(/(?<=[.!?])\s+/).filter(s => s.length > 20);
+    const summary = sentences.slice(0, 3).join(" ");
+    return summary.length > 400 ? summary.slice(0, 397) + "..." : summary;
   }
 
-  // Take first 3 sentences, cap at 400 chars
-  const summary = sentences.slice(0, 3).join(" ");
-  return summary.length > 400 ? summary.slice(0, 397) + "..." : summary;
+  try {
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const prompt = `
+You are an expert DevOps engineer and SRE. Read the following article title and content.
+Provide a short summary (maximum 3 sentences) focusing specifically on the **DevOps Impact**.
+Highlight any breaking changes, new features, or implications for operations and reliability.
+If the article is not strictly related to DevOps, provide a general summary.
+
+Title: ${title}
+
+Content:
+${clean}
+
+Summary:`;
+
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    let summaryText = response.text().trim();
+    return summaryText.length > 400 ? summaryText.slice(0, 397) + "..." : summaryText;
+  } catch (error) {
+    console.error("Error generating summary with Gemini:", error);
+    return clean.slice(0, 300) + "..."; // Fallback
+  }
 }
 
 // ============================================
@@ -120,6 +142,18 @@ const TECH_KEYWORDS: Record<string, string[]> = {
     "calico",
     "cilium",
   ],
+  ai: [
+    "agents",
+    "aiops",
+    "llm",
+    "rag",
+    "sre-agent",
+    "copilot",
+    "autonomous remediation",
+    "generative ai",
+    "openai",
+    "gemini",
+  ],
 };
 
 /**
@@ -170,6 +204,9 @@ export function categorize(tags: string[]): string {
   }
   if (tags.includes("networking")) {
     return "Networking";
+  }
+  if (tags.includes("ai")) {
+    return "AI in DevOps";
   }
   return "General DevOps";
 }

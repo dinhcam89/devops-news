@@ -1,4 +1,4 @@
-name: 📥 Ingest DevOps News
+name: Ingest Script
 
 on:
   schedule:
